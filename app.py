@@ -1,3 +1,7 @@
+
+
+
+
 # 김대리 개인비서 에이블의 Streamlit 화면
 import asyncio
 import base64
@@ -53,23 +57,83 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 KST = timezone(timedelta(hours=9))
 MAX_TURNS = 10
 
-# --- [신규 추가] 지출 기록 파일 경로 정의 ---
-EXPENSE_FILE = "expenses.json"
+#응답 부분 프롬프트
 
 INSTRUCTIONS = """
-당신은 김대리의 개인 비서 에이블입니다.
-입력에 들어 있는 최근 대화를 이어서 이해합니다.
-일상적인 대화는 도구 없이 직접 답합니다.
-회의 요약, 미팅 정리, 배정 업무 확인 요청일 때만 summarize_meeting을 호출합니다.
-이메일로 보내 달라는 말이 있을 때만 send_email을 호출합니다.
-캘린더에 등록해 달라는 말이 있으면 register_calendar_events를 호출합니다.
-사용자가 기준일을 말하면 meeting_date에 YYYY-MM-DD로 넣고, 말하지 않으면 빈 문자열을 넘깁니다.
-기준일이 없어도 등록 도구를 호출하고, 날짜를 다시 물어보지 않습니다.
-지출 내역(교통비, 식비 등 결제 내역)을 기록해달라고 하면 record_expense를 호출합니다.  # [신규 추가] 지출 기록 지시
-특정 업무에 대한 '이메일 초안 작성'을 요청하면 draft_business_email을 호출합니다. # [신규 추가] 이메일 초안 지시
-사용자가 요청하지 않은 도구는 호출하지 않습니다.
-도구 결과가 오기 전에는 요약, 발송 완료, 등록 완료를 말하지 않습니다.
-요약 도구가 돌려준 summary만 짧게 말합니다.
+당신은 '김 대리'의 AI 개인비서 '에이블'입니다.
+
+회의에 참석하지 못한 김 대리가 회의 내용을 이해하고,
+자신의 담당 업무와 마감일을 정확하게 파악하도록 돕습니다.
+
+[기본 대화 원칙]
+1. 사용자의 질문을 이해하고 자연스러운 한국어로 답합니다.
+2. 입력으로 제공된 최근 대화 기록을 참고하여
+   이전 질문과 연결되는 후속 질문을 이해합니다.
+3. 일상적인 대화는 도구를 호출하지 않고 직접 답합니다.
+4. 회의록과 저장된 회의 분석 결과에 없는 내용을
+   추측하거나 만들어내지 않습니다.
+5. 사용자가 요청하지 않은 도구는 호출하지 않습니다.
+6. 도구 실행 결과를 받기 전에는
+   작업이 완료됐다고 말하지 않습니다.
+
+[회의 요약 및 후속 질문]
+1. 새로운 회의 요약이나 미팅 정리를 요청받으면
+   summarize_meeting 도구를 호출합니다.
+2. 담당 업무를 처음 확인하는 요청이며
+   이전 회의 분석 결과가 제공되지 않았다면
+   summarize_meeting 도구를 호출합니다.
+3. 이전 대화 또는 저장된 회의 분석 결과로
+   답변할 수 있는 후속 질문에는
+   불필요하게 summarize_meeting을 다시 호출하지 않습니다.
+4. 첫 회의 요약 요청에는 도구가 반환한 summary를
+   참고하여 핵심 내용을 간결하게 안내합니다.
+5. 김 대리의 업무 전체를 요청하면
+   배정된 업무와 마감일을 빠짐없이 설명합니다.
+6. 특정 업무를 질문하면
+   해당 업무의 내용과 마감일을 중심으로 설명합니다.
+7. 상세한 설명이나 원본 근거를 요청하면
+   제공된 회의 분석 결과에 근거하여 설명합니다.
+8. 확정된 결정 사항과 검토 중인 의견을 구분합니다.
+9. 담당자가 변경되거나 업무가 취소됐다면
+   최종 확정된 내용을 기준으로 설명합니다.
+10. 마감일이 없거나 취소됐다면
+    마감일이 정해지지 않았다고 안내합니다.
+
+[이메일 기능]
+1. 사용자가 이메일 발송을 명시적으로 요청한 경우에만
+   send_email 도구를 호출합니다.
+2. 수신자나 발송 내용이 불분명하면 확인을 요청합니다.
+3. 사용자가 발송 내용을 확인할 수 있도록 안내합니다.
+4. 도구 실행 결과를 확인하기 전에는
+   이메일 발송이 완료됐다고 말하지 않습니다.
+5. 발송 실패 시 성공했다고 안내하지 않습니다.
+
+[캘린더 기능]
+1. 사용자가 일정 등록을 명시적으로 요청한 경우에만
+   register_calendar_events 도구를 호출합니다.
+2. 사용자가 회의 기준일을 명시한 경우
+   meeting_date에 YYYY-MM-DD 형식으로 전달합니다.
+3. 사용자가 회의 기준일을 말하지 않았다면
+   meeting_date에는 빈 문자열을 전달합니다.
+4. 기준일이 없다는 이유만으로
+   등록 도구 호출 전에 날짜를 다시 묻지 않습니다.
+5. 회의록에 명확한 날짜가 없는 업무에 대해
+   임의로 마감일을 확정했다고 말하지 않습니다.
+6. 도구가 반환한 등록 결과를 확인하고
+   등록된 업무와 등록되지 않은 업무를 구분합니다.
+7. 등록에 실패하거나 제외된 업무를
+   등록 완료했다고 말하지 않습니다.
+8. 일정이 등록되지 않은 이유가 날짜 불명확성이라면
+   사용자에게 해당 사실을 안내합니다.
+
+[최종 응답 원칙]
+1. 사용자의 질문 의도에 맞춰 답변합니다.
+2. 첫 요약은 간결하게 안내합니다.
+3. 후속 질문에는 필요한 만큼 자세하게 답변합니다.
+4. 김 대리의 담당 업무와 마감일은 정확하게 전달합니다.
+5. 업무의 정확성을 답변 길이보다 우선합니다.
+6. 도구 실행 결과와 제공된 회의 정보를 근거로 답변합니다.
+7. 같은 내용을 불필요하게 반복하지 않습니다.
 """
 
 TOOLS = [
@@ -117,38 +181,6 @@ TOOLS = [
         },
         "strict": True,
     },
-    # --- [신규 추가] 지출 기록 도구 ---
-    {
-        "type": "function",
-        "name": "record_expense",
-        "description": "사용자가 지출 내역(교통비, 식비 등 결제 내역) 기록을 요청할 때 호출합니다.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "amount": {"type": "integer", "description": "지출 금액 (숫자만)"},
-                "category": {"type": "string", "description": "지출 분류 (예: 교통비, 식비)"},
-                "description": {"type": "string", "description": "지출 상세 내역"}
-            },
-            "required": ["amount", "category", "description"],
-            "additionalProperties": False,
-        },
-        "strict": True,
-    },
-    # --- [신규 추가] 이메일 초안 작성 도구 ---
-    {
-        "type": "function",
-        "name": "draft_business_email",
-        "description": "사용자가 특정 업무에 대해 이메일 초안 작성을 지시할 때 호출합니다.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_description": {"type": "string", "description": "이메일을 작성할 목적이나 업무 내용"}
-            },
-            "required": ["task_description"],
-            "additionalProperties": False,
-        },
-        "strict": True,
-    },
 ]
 
 st.set_page_config(page_title="에이블", page_icon="🤖", layout="wide")
@@ -167,9 +199,6 @@ if "calendar_tasks" not in st.session_state:
     st.session_state.calendar_tasks = []
 if "meeting_text" not in st.session_state:
     st.session_state.meeting_text = ""
-# --- [신규 추가] 이메일 초안 상태 관리 변수 ---
-if "email_draft" not in st.session_state:
-    st.session_state.email_draft = ""
 
 
 def meeting_text():
@@ -242,38 +271,91 @@ def summarize_meeting():
         return {"status": "failed", "error": "회의록 txt를 먼저 업로드하세요."}
 
     prompt = f"""
-다음 회의록을 읽고 JSON만 작성해 주세요.
+다음 회의록을 분석하여 JSON만 작성해 주세요.
 
-summary에는 아래 형식의 한국어 요약만 넣습니다.
-- 회의록에 명시된 사실만 사용하고, 추측하거나 세부사항을 만들지 마세요.
-- 제안이나 의견을 확정된 결정으로 표현하지 마세요.
-- 담당자나 기한이 없으면 
-"명시되지 않음"이라고 적으세요.
-- 
-"빨리", "조속히"처럼 날짜가 아닌 표현은 그대로 적고, 구체적인 기한은 미정이라고 덧붙이세요.
-- 김대리의 업무와 다른 사람의 업무를 섞지 마세요.
+[회의록]
+{meeting_text}
 
-summary 형식:
-첫 줄은 회의 주제를 쓰고 "미팅 내용을 요약해 전달드립니다."라고 이어서 작성합니다.
+[분석 원칙]
+1. 회의록에 명시된 사실만 사용하고 추측하지 않습니다.
+2. 회의 핵심 내용을 3~5줄로 요약합니다.
+3. 확정된 결정 사항과 논의 중인 의견을 구분합니다.
+4. 김 대리에게 최종 배정된 모든 업무를 빠짐없이 추출합니다.
+5. 다른 사람에게 배정된 업무는 포함하지 않습니다.
+6. 담당자가 변경됐다면 최종 담당자를 기준으로 합니다.
+7. 최종 취소된 업무는 제외합니다.
+8. 업무는 유지되고 마감일만 취소됐다면
+   해당 업무를 유지하고 마감일은 미정으로 처리합니다.
+9. 반복 언급된 동일 업무는 하나로 정리합니다.
+10. 원본 근거는 회의록 문장을 그대로 인용합니다.
+11. 업무의 우선순위가 명시되지 않았다면
+    임의로 우선순위를 정하지 않습니다.
+
+[summary 작성 기준]
+summary에는 사람이 읽기 좋은 한국어 보고서를 작성합니다.
+
+첫 줄:
+회의 주제를 작성하고
+"미팅 내용을 요약해 전달드립니다."라고 안내합니다.
+
 [미팅 요약]
-- 주제별로 한 줄씩 작성합니다.
-[김대리님께 배정된 업무]
-1. 업무 제목
-  - 해야 할 일을 회의록 표현 그대로 적습니다.
-  - 관련 의견을 정리합니다.
-  - 합의된 기한 표현을 적고, 없으면 "별도의 완료 기한은 회의에서 정해지지 않았습니다."라고 적습니다.
-김대리 업무가 없으면 [김대리님께 배정된 업무] 아래에 "배정된 업무 없음"이라고 적습니다.
+- 핵심 내용을 3~5줄로 작성합니다.
+- 확정된 사항과 검토 중인 사항을 구분합니다.
 
-events에는 김대리에게 배정된 업무만 넣습니다. 다른 사람 업무는 넣지 않습니다.
-- summary는 업무 제목입니다.
-- description은 해야 할 일입니다.
-- owner는 김대리로만 적습니다.
-- due_text는 회의록의 기한 표현 그대로 적고, 없으면 빈 문자열입니다.
-- 회의록에 YYYY-MM-DD 날짜가 있을 때만 start_date와 end_date를 채웁니다.
-- 날짜가 없으면 start_date와 end_date는 빈 문자열입니다.
-- 
-"다음 주", "빨리"를 날짜로 바꾸지 마세요.
-- 시각이 없으면 has_clock_time은 false입니다.
+[김대리님께 배정된 업무]
+김 대리의 모든 업무를 아래 형식으로 작성합니다.
+
+1. 업무 제목
+   - 담당자: 김 대리
+   - 해야 할 일: 회의록에 나온 업무 내용
+   - 마감일: 회의록에 나온 최종 기한
+   - 구체적인 요청사항: 회의록에 나온 요청사항
+   - 원본 근거: 실제 회의록 문장
+
+업무가 여러 개면 같은 형식을 반복합니다.
+
+김 대리에게 확정된 업무가 없다면
+"배정된 업무 없음"이라고 작성합니다.
+
+[마감일 처리]
+- 날짜가 명시된 경우 회의록 표현을 유지합니다.
+- "다음 주까지", "금요일까지" 등의 표현은
+  특정 날짜로 임의 계산하지 않습니다.
+- "빨리", "조속히" 등은 원문 표현을 유지하면서
+  구체적인 기한은 미정이라고 안내합니다.
+- 마감일이 없다면 "마감일 미정"으로 작성합니다.
+- 최종적으로 취소된 마감일은 사용하지 않습니다.
+
+[events 작성 기준]
+events에는 김 대리에게 최종 배정된 업무만 넣습니다.
+
+기존 JSON 필드명과 자료형을 변경하지 않습니다.
+
+- summary: 업무 제목
+- description: 해야 할 일과 구체적인 요청사항
+- owner: "김대리"
+- due_text: 회의록에 나온 최종 기한 표현
+- has_clock_time: 명확한 시각이 있을 때만 true
+- start_date: 명확한 YYYY-MM-DD 날짜가 있을 때만 입력
+- end_date: 명확한 YYYY-MM-DD 날짜가 있을 때만 입력
+
+[events 날짜 기준]
+1. 마감일 표현은 due_text에 원문 그대로 기록합니다.
+2. 기한이 없거나 취소됐다면 due_text는 빈 문자열입니다.
+3. YYYY-MM-DD 날짜가 명시되지 않았다면
+   start_date와 end_date는 빈 문자열입니다.
+4. "다음 주", "금요일", "빨리" 등의 표현을
+   임의로 특정 날짜로 변환하지 않습니다.
+5. 시각이 명시되지 않았다면 has_clock_time은 false입니다.
+6. 동일 업무는 events에 중복 추가하지 않습니다.
+7. 김 대리에게 확정된 업무가 없다면 events는 빈 배열입니다.
+
+[최종 확인]
+1. 회의록 전체를 확인하여 김 대리 업무 누락 여부를 검토합니다.
+2. summary와 events에 포함된 업무가 일치하는지 확인합니다.
+3. 취소되거나 변경된 업무와 기한이 정확하게 반영됐는지 확인합니다.
+4. 담당자, 업무, 마감일, 원본 근거를 만들어내지 않습니다.
+5. JSON 외의 설명이나 코드 블록을 출력하지 않습니다.
 
 [회의록]
 {text}
@@ -457,55 +539,6 @@ def register_calendar_events(meeting_date=""):
     return {"status": "success", "registered": registered, "skipped": skipped, "meeting_date": meeting_date}
 
 
-# --- [신규 추가] 지출/영수증 기록 함수 ---
-def record_expense(amount: int, category: str, description: str):
-    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    new_record = {"date": now, "amount": amount, "category": category, "description": description}
-    
-    expenses = []
-    if os.path.exists(EXPENSE_FILE):
-        try:
-            with open(EXPENSE_FILE, "r", encoding="utf-8") as f:
-                expenses = json.load(f)
-        except json.JSONDecodeError:
-            pass
-            
-    expenses.append(new_record)
-    with open(EXPENSE_FILE, "w", encoding="utf-8") as f:
-        json.dump(expenses, f, ensure_ascii=False, indent=2)
-        
-    return {"status": "success", "message": f"{category} 항목 {amount}원 기록 완료"}
-
-
-# --- [신규/수정] 이메일 초안 작성 함수 (발신자/수신인 명확화) ---
-def draft_business_email(task_description: str):
-    if not st.session_state.summary:
-        summarize_meeting()
-        
-    sys_role = "당신은 10년 차 전문 비즈니스 이메일 작성가입니다. 회의 요약과 사용자의 요청을 바탕으로 명확한 이메일 초안을 작성하세요."
-    prompt = f"""
-    [회의 요약]
-    {st.session_state.summary}
-    
-    [사용자 요청 업무]
-    {task_description}
-    
-    위 내용을 바탕으로 이메일 초안을 작성해 주세요. 
-    이 이메일의 발신자는 반드시 '김대리'로 설정해야 합니다. 
-    수신인은 [회의 요약]과 [사용자 요청 업무] 내용을 기반으로 가장 적절한 대상(예: 거래처, 인플루언서, 팀원 등)을 추론하여 작성하세요.
-    제목과 본문을 포함하고, 구체적인 이름이나 날짜 등 확정되지 않은 정보는 [ ] 로 표시된 부분은 사용자가 나중에 채울 수 있도록 비워두세요.
-    """
-    
-    response = client.responses.create(
-        model=MODEL,
-        instructions=sys_role,
-        input=prompt
-    )
-    
-    st.session_state.email_draft = response.output_text.strip()
-    return {"status": "success", "draft": st.session_state.email_draft}
-
-
 def run_tool(name, arguments):
     if isinstance(arguments, str):
         arguments = json.loads(arguments or "{}")
@@ -516,11 +549,6 @@ def run_tool(name, arguments):
         return send_meeting_email(arguments.get("to", ""), arguments.get("subject", "회의 요약"))
     if name == "register_calendar_events":
         return register_calendar_events(arguments.get("meeting_date", ""))
-    # --- [신규 추가] 도구 실행 분기 ---
-    if name == "record_expense":
-        return record_expense(arguments.get("amount", 0), arguments.get("category", "기타"), arguments.get("description", ""))
-    if name == "draft_business_email":
-        return draft_business_email(arguments.get("task_description", ""))
     return {"error": f"unknown tool: {name}"}
 
 
@@ -708,10 +736,6 @@ if st.session_state.summary:
     st.subheader("회의 요약")
     st.write(st.session_state.summary)
 
-
-# ----------------------------------------------------
-# 1. 김대리 업무 체크리스트 (기존 위치 보존)
-# ----------------------------------------------------
 st.divider()
 st.subheader("김대리 업무 체크리스트")
 st.write("요약을 요청하면 김대리 업무가 여기에 생깁니다. 완료를 체크하면 연결된 캘린더 일정을 지웁니다.")
@@ -735,64 +759,12 @@ for task in st.session_state.tasks:
             event for event in st.session_state.calendar_tasks
             if event.get("event_id") != event_id and event.get("title") != task["title"]
         ]
-        st.rerun()
+    st.rerun()
 
 total = len(st.session_state.tasks)
 st.progress(completed / total if total else 0)
 st.write(f"완료한 업무: {completed}/{total}개")
 
-
-# ----------------------------------------------------
-# 2. [신규/수정] 비즈니스 이메일 초안 작성 및 어조 변환
-# ----------------------------------------------------
-st.divider()
-st.subheader("✉️ 비즈니스 이메일 초안 작성")
-
-if st.session_state.tasks:
-    titles = [task["title"] for task in st.session_state.tasks]
-    selected_task = st.selectbox("초안을 작성할 업무 선택:", options=titles, key="email_task_select")
-    
-    # 초안 생성 버튼
-    if st.button("이메일 초안 생성하기"):
-        with st.spinner("초안을 작성 중입니다..."):
-            draft_business_email(selected_task)
-            st.rerun()
-
-    # 초안이 생성된 경우 Text Area와 어조 변환 버튼 표시
-    if st.session_state.email_draft:
-        st.caption("초안을 직접 수정할 수 있습니다.")
-        
-        # [수정 2] 사용자가 수정 가능한 text_area (상태 관리 로직 수정)
-        edited_draft = st.text_area(
-            "이메일 내용", 
-            value=st.session_state.email_draft, 
-            height=300
-        )
-        
-        if st.button("✨ 비즈니스 매너 어조로 변환"):
-            with st.spinner("비즈니스 어조로 윤문 중입니다..."):
-                sys_role = "당신은 비즈니스 커뮤니케이션 전문가입니다."
-                # [수정 2] 사용자가 수정한 텍스트(edited_draft)를 기반으로 강력한 필터링 지시 추가
-                prompt = f"다음 텍스트를 가장 정중하고 프로페셔널한 비즈니스 이메일 톤으로 변환해 주세요. 비속어나 감정적인 표현, 부적절한 단어가 있다면 모두 제거하고 철저히 비즈니스 매너에 맞는 정중한 표현으로 재작성해야 합니다.\n\n[원본 텍스트]\n{edited_draft}"
-                
-                response = client.responses.create(
-                    model=MODEL,
-                    instructions=sys_role,
-                    input=prompt
-                )
-                # 변환된 결과로 세션 상태 업데이트 후 리런
-                st.session_state.email_draft = response.output_text.strip()
-                st.rerun()
-        elif edited_draft != st.session_state.email_draft:
-            # 버튼 클릭 없이 텍스트 영역만 수정한 경우, 세션 상태 동기화
-            st.session_state.email_draft = edited_draft
-else:
-    st.info("먼저 요약을 요청하여 업무 목록을 만들어주세요.")
-
-
-# ----------------------------------------------------
-# 3. 업무 캘린더 (기존 위치 보존)
-# ----------------------------------------------------
 st.divider()
 st.subheader("업무 캘린더")
 with st.form("calendar_form"):
@@ -816,26 +788,3 @@ calendar(
     },
     key="work_calendar",
 )
-
-
-# ----------------------------------------------------
-# 4. [신규 추가] 실시간 지출 기록 확인
-# ----------------------------------------------------
-st.divider()
-st.subheader("💳 최근 지출 기록")
-st.write("음성이나 텍스트로 지출 내역을 기록하면 이곳에 업데이트됩니다. (예: 택시비 15000원 외근 교통비로 기록해줘)")
-
-if os.path.exists(EXPENSE_FILE):
-    try:
-        with open(EXPENSE_FILE, "r", encoding="utf-8") as f:
-            expenses = json.load(f)
-            
-        if expenses:
-            # 리스트 딕셔너리를 마크다운 테이블 형태로 변환하여 출력
-            st.table(expenses)
-        else:
-            st.info("기록된 지출 내역이 없습니다.")
-    except json.JSONDecodeError:
-        st.error("지출 기록 파일을 읽을 수 없습니다.")
-else:
-    st.info("지출 기록 파일이 아직 생성되지 않았습니다.")
