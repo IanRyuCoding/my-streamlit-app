@@ -1,3 +1,53 @@
+# 우리 조 추가 의존성: 수업 requirements.txt의 고정 버전을 변경하지 않습니다.
+import importlib
+import importlib.util
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+COURSE_REQUIREMENTS = "streamlit==1.64.0\nlangchain-core==1.6.3\nlangchain-openai==1.6.2\nlangchain-text-splitters==1.1.2\nlangchain-chroma==1.1.0\nchromadb==1.5.9\nlangchain-pymupdf4llm==1.28.0"
+TEAM_PACKAGES = {
+    "langchain_community": "langchain-community",
+    "langchain_classic": "langchain-classic",
+    "rank_bm25": "rank-bm25==0.2.2",
+}
+
+def ensure_team_packages():
+    missing = [
+        package for module, package in TEAM_PACKAGES.items()
+        if importlib.util.find_spec(module) is None
+    ]
+    if not missing:
+        return
+    # 잠금으로 동일 서버의 동시 최초 접속 시 설치가 겹치지 않게 합니다.
+    from filelock import FileLock
+    lock_path = Path(tempfile.gettempdir()) / "aivle_team_dependencies.lock"
+    with FileLock(str(lock_path), timeout=600):
+        importlib.invalidate_caches()
+        missing = [
+            package for module, package in TEAM_PACKAGES.items()
+            if importlib.util.find_spec(module) is None
+        ]
+        if not missing:
+            return
+        with tempfile.TemporaryDirectory(prefix="aivle_dependencies_") as folder:
+            constraints = Path(folder) / "constraints.txt"
+            constraints.write_text(COURSE_REQUIREMENTS, encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+                 "--constraint", str(constraints), *missing],
+                capture_output=True, text=True, timeout=600,
+            )
+        if completed.returncode:
+            raise RuntimeError(
+                "우리 조 추가 패키지 설치 실패. 수업 고정 버전은 유지했습니다. "
+                "서버 네트워크와 설치 권한 및 패키지 호환성을 확인하세요.\n"
+                + completed.stderr[-2000:]
+            )
+        importlib.invalidate_caches()
+
+ensure_team_packages()
 
 import os
 import uuid
