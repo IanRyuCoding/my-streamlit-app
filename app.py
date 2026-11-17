@@ -479,6 +479,7 @@ def rag_pipeline(filepath):
 
 # Streamlit 화면 구성
 st.set_page_config(page_title="AIVLE School 학습 도우미", page_icon="📘", layout="wide")
+st.caption("UI 버전: 로고 적용 v2")
 st.markdown("""
 <style>
 [data-testid="stSidebar"] {background:#f1f5f9;}
@@ -529,14 +530,13 @@ if api_key:
 
 selected_question = None
 with st.sidebar:
-    logo_file = next(
-        (p for p in ["logo.png", "AIVLEARCHIVE 단색 배경제거.png", "AIVLE ARCHIVE 단색.png"] if Path(p).exists()),
-        None,
-    )
-    if logo_file:
-        st.image(logo_file, use_container_width=True)
+    logo_file = Path(__file__).resolve().parent / "logo.png"
+
+    if logo_file.is_file():
+        st.image(str(logo_file), use_container_width=True)
     else:
-        st.markdown('<div style="height:135px;border:2px dashed #94a3b8;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#64748b;">우리 조 로고 · 준비 중</div>', unsafe_allow_html=True)
+        st.warning("logo.png 파일을 찾을 수 없습니다.")
+
     st.caption("백서에서 찾고, 근거와 함께 배우는 우리 조의 학습 도우미")
     st.divider()
     st.subheader("📂 백서 업로드")
